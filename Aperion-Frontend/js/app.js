@@ -40,6 +40,27 @@
     deleted: []
   };
 
+  const ICONS = {
+    list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+    star: '<path d="m12 3 2.7 5.5 6 .9-4.4 4.2 1 6-5.3-2.8L6.7 19.6l1-6L3.3 9.4l6-.9z"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    trash: '<path d="M4 7h16M9 7V5h6v2M6 7l1 14h10l1-14"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M4.9 6.3l1.4 1.4M17.7 16.3l1.4 1.4M3 12h2M19 12h2M4.9 17.7l1.4-1.4M17.7 7.7l1.4-1.4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    restore: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 5v5h5"/>',
+    more: '<circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none"/>'
+  };
+
+  function icon(name, filled = false) {
+    const path = ICONS[name];
+    if (!path) return "";
+    const fill = filled ? "currentColor" : "none";
+    const starExtra = name === "star" && filled ? ' fill="currentColor"' : "";
+    return `<svg class="icon-svg" viewBox="0 0 24 24" fill="${name === "star" && filled ? "currentColor" : fill}" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${starExtra}>${path}</svg>`;
+  }
+
   const state = {
     data: loadData(),
     view: "all",
@@ -47,7 +68,10 @@
     searchQuery: "",
     editingTaskId: null,
     lastAction: null,
-    focusedTaskId: null
+    focusedTaskId: null,
+    lastViewKey: null,
+    completedOpen: false,
+    sidebarOpen: false
   };
 
   const $ = (s, root = document) => root.querySelector(s);
@@ -81,8 +105,6 @@
   function projectById(id) { return state.data.projects.find(p => p.id === id); }
   function sectionById(project, id) { return project?.sections?.find(s => s.id === id); }
   function activeTasks() { return state.data.tasks.filter(t => !t.deleted); }
-  // Subtasks live inside their parent task's modal, not as their own row in
-  // the primary lists — this is the single place that distinction is made.
   function topLevelTasks() { return activeTasks().filter(t => !t.parentTaskId); }
 
   function taskCount() { return topLevelTasks().filter(t => !t.completed).length; }
@@ -91,6 +113,10 @@
 
   function projectTasks(projectId) {
     return topLevelTasks().filter(t => t.projectId === projectId);
+  }
+
+  function viewKey() {
+    return state.selectedProjectId ? `project:${state.selectedProjectId}` : state.view;
   }
 
   function escapeHtml(value) {
@@ -115,10 +141,33 @@
     return `<span class="priority ${priority}">${label}</span>`;
   }
 
-  function render() {
+  function hydrateIcons(root = document) {
+    $$("[data-icon]", root).forEach(el => {
+      el.innerHTML = icon(el.dataset.icon, el.dataset.filled === "true");
+    });
+  }
+
+  function closeSidebar() {
+    state.sidebarOpen = false;
+    $("#app").classList.remove("sidebar-open");
+    $("#sidebarBackdrop").hidden = true;
+  }
+
+  function openSidebar() {
+    state.sidebarOpen = true;
+    $("#app").classList.add("sidebar-open");
+    $("#sidebarBackdrop").hidden = false;
+  }
+
+  function render(options = {}) {
+    const animateView = options.animateView !== false;
+    const nextKey = viewKey();
+    const viewChanged = nextKey !== state.lastViewKey;
+    state.lastViewKey = nextKey;
     renderSidebar();
     renderHeader();
-    renderContent();
+    renderContent(animateView && viewChanged);
+    hydrateIcons();
     bindGlobalInteractions();
   }
 
@@ -152,15 +201,32 @@
   }
 
   function renderHeader() {
-    const title = state.selectedProjectId
-      ? projectById(state.selectedProjectId)?.name || "Project"
-      : ({all:"All Tasks", favorites:"Favorites", search:"Search", deleted:"Recently Deleted", settings:"Settings"}[state.view] || "All Tasks");
-    const eyebrow = state.selectedProjectId ? "PROJECT" : "APERION";
-    $("#viewEyebrow").textContent = eyebrow;
+    const project = state.selectedProjectId ? projectById(state.selectedProjectId) : null;
+    const titles = { all:"All Tasks", favorites:"Favorites", search:"Search", deleted:"Recently Deleted", settings:"Settings" };
+    const title = project ? project.name : (titles[state.view] || "All Tasks");
+    let kicker = "";
+    if (project) {
+      const n = projectTasks(project.id).filter(t => !t.completed).length;
+      kicker = `${n} open`;
+    } else if (state.view === "all") {
+      kicker = `${taskCount()} open`;
+    } else if (state.view === "favorites") {
+      kicker = `${favoriteCount()} starred`;
+    } else if (state.view === "deleted") {
+      kicker = deletedCount() ? `${deletedCount()} recoverable` : "";
+    }
     $("#viewTitle").textContent = title;
+    $("#viewKicker").textContent = kicker;
+    const pip = $("#titlePip");
+    if (project) {
+      pip.hidden = false;
+      pip.style.background = project.color;
+    } else {
+      pip.hidden = true;
+    }
   }
 
-  function renderContent() {
+  function renderContent(animate) {
     const root = $("#content");
     if (state.selectedProjectId) {
       root.innerHTML = renderProjectView(projectById(state.selectedProjectId));
@@ -175,9 +241,8 @@
     } else {
       root.innerHTML = renderAllTasks();
     }
-    // Restart the fade-in on the freshly rendered view (subtle nav transition).
     const inner = $(".content-inner", root);
-    if (inner) {
+    if (inner && animate) {
       inner.classList.remove("view-enter");
       void inner.offsetWidth;
       inner.classList.add("view-enter");
@@ -189,7 +254,7 @@
     const section = sectionById(project, task.sectionId);
     const subtasks = state.data.tasks.filter(t => t.parentTaskId === task.id);
     const subtaskBadge = subtasks.length
-      ? `<span class="subtask-progress" title="${subtasks.filter(s=>s.completed).length} of ${subtasks.length} subtasks done">◐ ${subtasks.filter(s=>s.completed).length}/${subtasks.length}</span>`
+      ? `<span class="subtask-progress" title="${subtasks.filter(s=>s.completed).length} of ${subtasks.length} subtasks done">${subtasks.filter(s=>s.completed).length}/${subtasks.length}</span>`
       : "";
     return `
       <div class="task-row ${task.completed ? "completed" : ""} ${state.focusedTaskId === task.id ? "focused" : ""}" draggable="true" data-task-id="${task.id}">
@@ -200,14 +265,38 @@
             ${priorityHTML(task.priority)}
             ${subtaskBadge}
             ${task.notes ? `<span>${escapeHtml(task.notes.slice(0,70))}</span>` : ""}
-            ${project ? `<span>${escapeHtml(project.name)}</span>` : ""}
-            ${section ? `<span>· ${escapeHtml(section.name)}</span>` : ""}
+            ${project && !state.selectedProjectId ? `<span>${escapeHtml(project.name)}</span>` : ""}
+            ${section ? `<span>${escapeHtml(section.name)}</span>` : ""}
           </div>
         </div>
         <div class="task-actions">
-          <button class="star ${task.favorite ? "active" : ""}" data-favorite="${task.id}" title="Favorite" aria-pressed="${task.favorite}">${task.favorite ? "★" : "☆"}</button>
+          <button class="star ${task.favorite ? "active" : ""}" data-favorite="${task.id}" title="Favorite" aria-pressed="${task.favorite}">${icon("star", task.favorite)}</button>
         </div>
       </div>`;
+  }
+
+  function groupedList(tasks) {
+    if (!tasks.length) return "";
+    return `<div class="task-list grouped">${tasks.map(taskRow).join("")}</div>`;
+  }
+
+  function quickAddHTML() {
+    return `<form class="quick-add" id="quickAdd">
+      <span class="check" aria-hidden="true"></span>
+      <input id="quickAddInput" placeholder="New task" autocomplete="off" aria-label="New task">
+    </form>`;
+  }
+
+  function completedBlock(completed) {
+    if (!completed.length) return "";
+    return `<div class="section-block">
+      <button class="section-heading completed-toggle" type="button" id="completedToggle" aria-expanded="${state.completedOpen}">
+        <span class="disclosure ${state.completedOpen ? "open" : ""}"></span>
+        <span>Completed</span>
+        <span class="section-count">${completed.length}</span>
+      </button>
+      ${state.completedOpen ? groupedList(completed.sort((a,b)=>(b.completedAt||0)-(a.completedAt||0))) : ""}
+    </div>`;
   }
 
   function renderTaskGroups(tasks) {
@@ -216,15 +305,15 @@
       const project = projectById(t.projectId);
       const section = sectionById(project, t.sectionId);
       const key = section ? section.id : t.projectId || "unassigned";
-      const title = section ? section.name : (project?.name || "Unassigned");
+      const title = section ? section.name : (project?.name || "Inbox");
       if (!groups.has(key)) groups.set(key, {title, projectId:t.projectId, tasks:[]});
       groups.get(key).tasks.push(t);
     });
 
     return [...groups.values()].map(group => `
       <div class="section-block">
-        <div class="section-heading"><span>${escapeHtml(group.title)}</span><span class="line"></span><span>${group.tasks.length}</span></div>
-        <div class="task-list">${group.tasks.map(taskRow).join("")}</div>
+        <div class="section-heading"><span>${escapeHtml(group.title)}</span><span class="section-count">${group.tasks.length}</span></div>
+        ${groupedList(group.tasks)}
       </div>`).join("");
   }
 
@@ -232,12 +321,9 @@
     const tasks = topLevelTasks().filter(t => !t.completed);
     const completed = topLevelTasks().filter(t => t.completed);
     return `<div class="content-inner">
-      <div class="view-intro">
-        <div><div class="view-description">${taskCount()} active task${taskCount()===1?"":"s"} across your workspace.</div></div>
-        <button class="add-inline" data-action="new-task">＋ Add task</button>
-      </div>
-      ${tasks.length ? renderTaskGroups(tasks) : emptyState("✓", "Nothing left to do", "You’re clear. Add a task whenever something comes up.")}
-      ${completed.length ? `<div class="section-block"><div class="section-heading"><span>Completed</span><span class="line"></span><span>${completed.length}</span></div><div class="task-list">${completed.sort((a,b)=>b.createdAt-a.createdAt).map(taskRow).join("")}</div></div>` : ""}
+      ${quickAddHTML()}
+      ${tasks.length ? renderTaskGroups(tasks) : emptyState("Nothing left to do", "Type above to add something.")}
+      ${completedBlock(completed)}
     </div>`;
   }
 
@@ -245,49 +331,47 @@
     const tasks = topLevelTasks().filter(t => t.favorite).sort((a,b)=>a.order-b.order);
     const projects = state.data.projects.filter(p => p.favorite);
     return `<div class="content-inner">
-      <div class="view-intro"><div><div class="view-description">Your most important work, without another layer of complexity.</div></div></div>
-      ${projects.length ? `<div class="section-block"><div class="section-heading"><span>Projects</span><span class="line"></span></div>${projects.map(p=>`
+      ${projects.length ? `<div class="section-block"><div class="section-heading"><span>Projects</span></div>${projects.map(p=>`
         <div class="subproject-card" data-project="${p.id}">
-          <strong>${escapeHtml(p.name)}</strong><div class="task-meta">${projectTasks(p.id).filter(t=>!t.completed).length} active tasks</div>
+          <strong>${escapeHtml(p.name)}</strong><div class="task-meta">${projectTasks(p.id).filter(t=>!t.completed).length} open</div>
         </div>`).join("")}</div>`:""}
-      ${tasks.length ? `<div class="section-block"><div class="section-heading"><span>Tasks</span><span class="line"></span><span>${tasks.length}</span></div><div class="task-list">${tasks.map(taskRow).join("")}</div></div>` : emptyState("☆","No favorites yet","Star a task or project and it will appear here.")}
+      ${tasks.length ? `<div class="section-block"><div class="section-heading"><span>Tasks</span><span class="section-count">${tasks.length}</span></div>${groupedList(tasks)}</div>` : emptyState("No favorites yet", "Star a task and it will appear here.", true)}
     </div>`;
   }
 
   function renderProjectView(project) {
-    if (!project) return emptyState("?", "Project not found", "The selected project no longer exists.");
+    if (!project) return `<div class="content-inner">${emptyState("Project not found", "The selected project no longer exists.")}</div>`;
     const tasks = projectTasks(project.id);
     const sections = [...project.sections].sort((a,b)=>a.order-b.order);
     const children = state.data.projects.filter(p=>p.parentId===project.id);
+    const completed = tasks.filter(t => t.completed);
+    const openTasks = tasks.filter(t => !t.completed);
     return `<div class="content-inner">
       <div class="project-header">
-        <div class="project-icon" style="background:${escapeHtml(project.color)}">${escapeHtml(project.icon)}</div>
-        <div><h2>${escapeHtml(project.name)}</h2><p>${escapeHtml(project.description || "No description.")}</p></div>
+        ${project.description ? `<p>${escapeHtml(project.description)}</p>` : ""}
         <div class="project-actions">
-          <button class="icon-button" data-edit-project="${project.id}" title="Edit project">⋯</button>
-          <button class="icon-button" data-action="new-task" title="New task">＋</button>
+          <button class="icon-button" data-edit-project="${project.id}" title="Edit project" aria-label="Edit project">${icon("more")}</button>
         </div>
       </div>
-      ${children.length ? `<div class="section-block"><div class="section-heading"><span>Sub-projects</span><span class="line"></span></div>${children.map(c=>`<div class="subproject-card" data-project="${c.id}"><strong>${escapeHtml(c.name)}</strong><div class="task-meta">${projectTasks(c.id).filter(t=>!t.completed).length} active tasks</div></div>`).join("")}</div>` : ""}
+      ${quickAddHTML()}
+      ${children.length ? `<div class="section-block"><div class="section-heading"><span>Sub-projects</span></div>${children.map(c=>`<div class="subproject-card" data-project="${c.id}"><strong>${escapeHtml(c.name)}</strong><div class="task-meta">${projectTasks(c.id).filter(t=>!t.completed).length} open</div></div>`).join("")}</div>` : ""}
       ${sections.map(section => {
-        const sectionTasks = tasks.filter(t=>t.sectionId===section.id).sort((a,b)=>a.order-b.order);
+        const sectionTasks = openTasks.filter(t=>t.sectionId===section.id).sort((a,b)=>a.order-b.order);
         return `<div class="section-block">
-          <div class="section-heading"><span>${escapeHtml(section.name)}</span><span class="line"></span><span>${sectionTasks.length}</span></div>
-          ${sectionTasks.length ? `<div class="task-list">${sectionTasks.map(taskRow).join("")}</div>` : `<div class="subproject-card" data-action="new-task">No tasks yet · add one</div>`}
+          <div class="section-heading"><span>${escapeHtml(section.name)}</span><span class="section-count">${sectionTasks.length}</span></div>
+          ${sectionTasks.length ? groupedList(sectionTasks) : `<div class="subproject-card" data-action="new-task">Add a task</div>`}
         </div>`;
       }).join("")}
-      ${tasks.filter(t=>!t.sectionId).length ? `<div class="section-block"><div class="section-heading"><span>Unsectioned</span><span class="line"></span></div><div class="task-list">${tasks.filter(t=>!t.sectionId).map(taskRow).join("")}</div></div>`:""}
+      ${openTasks.filter(t=>!t.sectionId).length ? `<div class="section-block"><div class="section-heading"><span>Other</span></div>${groupedList(openTasks.filter(t=>!t.sectionId))}</div>`:""}
+      ${completedBlock(completed)}
     </div>`;
   }
 
   function renderSearchPage() {
     return `<div class="content-inner">
-      <div class="view-intro"><div><div class="view-description">Search everything instantly — titles, notes, projects and sections.</div></div></div>
-      <div class="setting-card" style="margin-bottom:18px">
-        <div class="search-line" style="border:0;padding:0">
-          <span class="search-symbol">⌕</span>
-          <input id="pageSearch" value="${escapeHtml(state.searchQuery)}" placeholder="Search Aperion…" autofocus>
-        </div>
+      <div class="search-page-field">
+        ${icon("search")}
+        <input id="pageSearch" value="${escapeHtml(state.searchQuery)}" placeholder="Search Aperion" autofocus>
       </div>
       <div id="pageSearchResults">${renderSearchResults(state.searchQuery)}</div>
     </div>`;
@@ -296,11 +380,11 @@
   function renderSearchResults(query) {
     if (!query.trim()) {
       const recent = state.data.recentSearches || [];
-      return recent.length ? `<div class="section-heading"><span>Recent searches</span><span class="line"></span></div>${recent.map(s=>`
+      return recent.length ? `<div class="section-heading"><span>Recent</span></div>${recent.map(s=>`
         <div class="recent-search-row">
-          <button class="search-result" data-recent-search="${escapeHtml(s)}"><span class="result-kind">RECENT</span><div class="result-title">${escapeHtml(s)}</div></button>
-          <button class="remove-recent" data-remove-recent="${escapeHtml(s)}" title="Remove from recent searches" aria-label="Remove ‘${escapeHtml(s)}’ from recent searches">×</button>
-        </div>`).join("")}` : emptyState("⌕","Search Aperion","Start typing to find tasks, projects, sections and notes.");
+          <button class="search-result" data-recent-search="${escapeHtml(s)}"><span class="result-kind">Recent</span><div class="result-title">${escapeHtml(s)}</div></button>
+          <button class="remove-recent" data-remove-recent="${escapeHtml(s)}" title="Remove from recent searches" aria-label="Remove ‘${escapeHtml(s)}’ from recent searches">${icon("close")}</button>
+        </div>`).join("")}` : emptyState("Search Aperion", "Find tasks, projects, sections and notes.");
     }
     const q = query.trim().toLowerCase();
     const taskResults = [], projectResults = [], sectionResults = [];
@@ -309,7 +393,7 @@
         taskResults.push({
           kind: t.parentTaskId ? "Subtask" : "Task",
           title: t.title,
-          detail: projectById(t.projectId)?.name || "Unassigned",
+          detail: projectById(t.projectId)?.name || "Inbox",
           task: t
         });
       }
@@ -323,9 +407,9 @@
       { label: "Projects", results: projectResults },
       { label: "Sections", results: sectionResults }
     ].filter(g => g.results.length);
-    if (!groups.length) return emptyState("⌕","No matches","Try another word or a task title.");
+    if (!groups.length) return emptyState("No matches", "Try another word or a task title.");
     return groups.map(g => `
-      <div class="section-heading"><span>${g.label}</span><span class="line"></span><span>${g.results.length}</span></div>
+      <div class="section-heading"><span>${g.label}</span><span class="section-count">${g.results.length}</span></div>
       ${g.results.map(r=>`<button class="search-result" data-result-kind="${r.kind}" data-result-id="${r.task?.id || r.project?.id || ""}">
         <span class="result-kind">${r.kind}</span>
         <div><div class="result-title">${highlightMatch(r.title, query)}</div>${r.detail ? `<div class="result-detail">${highlightMatch(r.detail, query)}</div>` : ""}</div>
@@ -336,36 +420,34 @@
     const items = state.data.deleted;
     return `<div class="content-inner">
       <div class="view-intro">
-        <div><div class="view-description">Deleted items stay recoverable for 30 days in the final app.</div></div>
-        ${items.length ? `<button class="add-inline" data-action="empty-trash">Empty Trash</button>` : ""}
+        ${items.length ? `<button class="add-inline" data-action="empty-trash">Empty</button>` : ""}
       </div>
-      ${items.length ? items.map(item => `<div class="task-row">
+      ${items.length ? `<div class="task-list grouped">${items.map(item => `<div class="task-row">
         <div class="check"></div><div class="task-main"><div class="task-title">${escapeHtml(item.title || item.name)}</div><div class="task-meta">Deleted ${formatRelative(item.deletedAt)}</div></div>
         <div class="task-actions" style="opacity:1">
-          <button class="star" data-restore="${item.id}" title="Restore">↩</button>
-          <button class="star" data-permanent-delete="${item.id}" title="Delete permanently">⊗</button>
+          <button class="star" data-restore="${item.id}" title="Restore">${icon("restore")}</button>
+          <button class="star" data-permanent-delete="${item.id}" title="Delete permanently">${icon("trash")}</button>
         </div>
-      </div>`).join("") : emptyState("⌫","Recently Deleted is empty","Deleted tasks and projects will appear here.")}
+      </div>`).join("")}</div>` : emptyState("Nothing here", "Deleted tasks will appear in this list.")}
     </div>`;
   }
 
   function renderSettings() {
     return `<div class="content-inner">
-      <div class="view-intro"><div><div class="view-description">Aperion stays intentionally quiet. There are very few settings to manage.</div></div></div>
       <div class="settings-grid">
         <div class="setting-card">
           <div class="setting-title">Appearance</div>
-          <div class="setting-description">Choose how the prototype follows the system appearance.</div>
+          <div class="setting-description">Match the system, or lock light or dark.</div>
           <div class="setting-row"><span>Theme</span><select class="select" id="appearanceSelect"><option value="system" ${state.data.appearance==="system"?"selected":""}>System</option><option value="light" ${state.data.appearance==="light"?"selected":""}>Light</option><option value="dark" ${state.data.appearance==="dark"?"selected":""}>Dark</option></select></div>
         </div>
         <div class="setting-card">
           <div class="setting-title">Notifications</div>
-          <div class="setting-description">A single, lightweight reminder about tasks you still have open.</div>
+          <div class="setting-description">A single reminder about tasks still open.</div>
           <div class="setting-row"><span>Remind me</span><select class="select" id="notificationSelect"><option value="off" ${state.data.notifications==="off"?"selected":""}>Off</option><option value="daily" ${state.data.notifications==="daily"?"selected":""}>Once a day</option><option value="weekdays" ${state.data.notifications==="weekdays"?"selected":""}>Weekdays only</option></select></div>
         </div>
         <div class="setting-card">
           <div class="setting-title">Local storage</div>
-          <div class="setting-description">This prototype stores its state in your browser's local storage. The final app will use SwiftData.</div>
+          <div class="setting-description">This prototype stores state in the browser. The final app will use SwiftData.</div>
           <div class="setting-row"><span>Prototype data</span><button class="primary-action" id="resetData">Reset demo data</button></div>
         </div>
         <div class="setting-card">
@@ -376,14 +458,17 @@
     </div>`;
   }
 
-  function emptyState(icon, title, description) {
-    return `<div class="empty-state"><div><div class="empty-icon">${icon}</div><h2>${title}</h2><p>${description}</p><button class="primary-action" data-action="new-task">Create a task</button></div></div>`;
+  function emptyState(title, description, withAction = false) {
+    return `<div class="empty-state"><div><h2>${title}</h2><p>${description}</p>${withAction ? `<button class="primary-action" data-action="new-task">New task</button>` : ""}</div></div>`;
   }
 
   function formatRelative(ts) {
     const days = Math.max(0, Math.floor((Date.now()-ts)/86400000));
     return days === 0 ? "today" : `${days} day${days===1?"":"s"} ago`;
   }
+
+  function openOverlay(el) { el.classList.add("is-open"); }
+  function closeOverlay(el) { el.classList.remove("is-open"); }
 
   function openTaskModal(taskId = null) {
     state.editingTaskId = taskId;
@@ -396,40 +481,49 @@
 
     $("#taskModal").innerHTML = `
       <div class="modal-header">
-        <input class="modal-title-input" id="modalTitle" value="${escapeHtml(task.title)}" placeholder="Task title" autofocus>
-        <button class="close-button" id="closeModal">×</button>
+        <input class="modal-title-input" id="modalTitle" value="${escapeHtml(task.title)}" placeholder="Title" autofocus>
+        <button class="close-button" id="closeModal" aria-label="Close">${icon("close")}</button>
       </div>
-      <div class="form-grid">
-        <div class="form-field"><label>Notes</label><textarea id="modalNotes" rows="4" placeholder="Add a little context…">${escapeHtml(task.notes||"")}</textarea></div>
-        <div class="two-col">
-          <div class="form-field"><label>Priority</label><select id="modalPriority"><option value="">None</option><option value="high" ${task.priority==="high"?"selected":""}>P1 — High</option><option value="medium" ${task.priority==="medium"?"selected":""}>P2 — Medium</option><option value="low" ${task.priority==="low"?"selected":""}>P3 — Low</option></select></div>
-          <div class="form-field"><label>Project</label><select id="modalProject"><option value="">No Project</option>${state.data.projects.map(p=>`<option value="${p.id}" ${task.projectId===p.id?"selected":""}>${escapeHtml(p.name)}</option>`).join("")}</select></div>
-        </div>
-        <div class="two-col">
-          <div class="form-field"><label>Section</label><select id="modalSection"><option value="">No Section</option>${project?.sections?.map(s=>`<option value="${s.id}" ${task.sectionId===s.id?"selected":""}>${escapeHtml(s.name)}</option>`).join("") || ""}</select></div>
-          <div class="form-field"><label>Link</label><input type="url" id="modalLink" placeholder="https://…" value="${escapeHtml((task.links||[])[0]||"")}"></div>
-        </div>
-        ${taskId ? `<div class="subtasks"><div class="section-heading" style="padding:0 0 5px"><span>Subtasks</span><span class="line"></span></div>${subtasks.map(s=>`<div class="subtask-line"><button class="check ${s.completed?"done":""}" data-complete="${s.id}"></button><input type="text" value="${escapeHtml(s.title)}" data-subtask-input="${s.id}"></div>`).join("")}<div class="subtask-line"><button class="check"></button><input type="text" id="newSubtask" placeholder="Add a subtask…"></div></div>` : ""}
+      <textarea class="notes-field" id="modalNotes" rows="4" placeholder="Notes">${escapeHtml(task.notes||"")}</textarea>
+      <div class="meta-row">
+        <label class="meta-field"><span>Priority</span>
+          <select id="modalPriority"><option value="">None</option><option value="high" ${task.priority==="high"?"selected":""}>High</option><option value="medium" ${task.priority==="medium"?"selected":""}>Medium</option><option value="low" ${task.priority==="low"?"selected":""}>Low</option></select>
+        </label>
+        <label class="meta-field"><span>Project</span>
+          <select id="modalProject"><option value="">Inbox</option>${state.data.projects.map(p=>`<option value="${p.id}" ${task.projectId===p.id?"selected":""}>${escapeHtml(p.name)}</option>`).join("")}</select>
+        </label>
+        <label class="meta-field"><span>Section</span>
+          <select id="modalSection"><option value="">None</option>${project?.sections?.map(s=>`<option value="${s.id}" ${task.sectionId===s.id?"selected":""}>${escapeHtml(s.name)}</option>`).join("") || ""}</select>
+        </label>
+        <label class="meta-field"><span>Link</span>
+          <input type="url" id="modalLink" placeholder="https://" value="${escapeHtml((task.links||[])[0]||"")}">
+        </label>
       </div>
+      ${taskId ? `<div class="subtasks"><div class="section-heading" style="padding:0 0 4px"><span>Subtasks</span></div>${subtasks.map(s=>`<div class="subtask-line"><button class="check ${s.completed?"done":""}" data-complete="${s.id}"></button><input type="text" value="${escapeHtml(s.title)}" data-subtask-input="${s.id}"></div>`).join("")}<div class="subtask-line"><button class="check"></button><input type="text" id="newSubtask" placeholder="New subtask"></div></div>` : ""}
       <div class="modal-footer">
-        <button class="danger-button" id="deleteTaskModal">${taskId ? "Delete task" : ""}</button>
-        <div style="margin-left:auto;display:flex;gap:7px"><button class="icon-button" id="favoriteModal">${task.favorite?"★":"☆"}</button><button class="save-button" id="saveTaskModal">Save Task</button></div>
+        <button class="danger-button" id="deleteTaskModal">${taskId ? "Delete" : ""}</button>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          <button class="icon-button" id="favoriteModal" aria-label="Favorite">${icon("star", task.favorite)}</button>
+          <button class="save-button" id="saveTaskModal">Done</button>
+        </div>
       </div>`;
-    $("#modalBackdrop").classList.remove("hidden");
+    openOverlay($("#modalBackdrop"));
 
     $("#closeModal").onclick = closeModal;
     $("#saveTaskModal").onclick = () => saveTaskFromModal(task);
     $("#deleteTaskModal").onclick = () => { if(taskId) { deleteTask(taskId); closeModal(); } };
-    $("#favoriteModal").onclick = () => { task.favorite = !task.favorite; $("#favoriteModal").textContent = task.favorite ? "★" : "☆"; };
+    $("#favoriteModal").onclick = () => {
+      task.favorite = !task.favorite;
+      $("#favoriteModal").innerHTML = icon("star", task.favorite);
+      $("#favoriteModal").classList.toggle("pop", true);
+    };
     $("#modalProject").onchange = () => {
       const p = projectById($("#modalProject").value);
-      $("#modalSection").innerHTML = `<option value="">No Section</option>${p?.sections?.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("") || ""}`;
+      $("#modalSection").innerHTML = `<option value="">None</option>${p?.sections?.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("") || ""}`;
     };
     $$(".check", $("#taskModal")).forEach(btn => {
       if (btn.dataset.complete) btn.onclick = () => toggleComplete(btn.dataset.complete);
     });
-    // Return commits instantly, from either the title field or the quick
-    // "add a subtask" field — no reaching for the Save button required.
     $("#modalTitle").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); saveTaskFromModal(task); } };
     $("#modalTitle").addEventListener("input", () => $("#modalTitle").classList.remove("field-error"));
     $("#newSubtask")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); saveTaskFromModal(task); } });
@@ -469,12 +563,30 @@
     } else {
       state.data.tasks.push({...existing,...payload,id:uid("task"),createdAt:Date.now()});
     }
-    persist(); closeModal(); render(); showToast(existing.id ? "Task updated" : "Task created");
+    persist(); closeModal(); render({ animateView: false }); showToast(existing.id ? "Task updated" : "Task created");
   }
 
   function closeModal() {
-    $("#modalBackdrop").classList.add("hidden");
+    closeOverlay($("#modalBackdrop"));
     state.editingTaskId = null;
+  }
+
+  function createQuickTask(title) {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const projectId = state.selectedProjectId;
+    const project = projectById(projectId);
+    const sectionId = project?.sections?.[0]?.id || null;
+    const siblings = topLevelTasks().filter(t => t.projectId === (projectId || null) && t.sectionId === sectionId);
+    const order = siblings.length ? Math.min(...siblings.map(t => t.order)) - 1 : 0;
+    state.data.tasks.push({
+      id: uid("task"), title: trimmed, notes: "", completed: false, priority: null, favorite: false,
+      projectId: projectId || null, sectionId, parentTaskId: null, order, createdAt: Date.now()
+    });
+    persist();
+    render({ animateView: false });
+    showToast("Task created");
+    $("#quickAddInput")?.focus();
   }
 
   function toggleComplete(id) {
@@ -482,14 +594,16 @@
     if (!task) return;
     task.completed = !task.completed;
     task.completedAt = task.completed ? Date.now() : null;
-    persist(); render(); showToast(task.completed ? "Task completed" : "Task reopened");
+    persist(); render({ animateView: false }); showToast(task.completed ? "Task completed" : "Task reopened");
   }
 
   function toggleFavorite(id) {
     const task = state.data.tasks.find(t=>t.id===id);
     if (!task) return;
     task.favorite = !task.favorite;
-    persist(); render();
+    persist(); render({ animateView: false });
+    const btn = $(`.star[data-favorite="${id}"]`);
+    if (btn) { btn.classList.add("pop"); }
   }
 
   function deleteTask(id) {
@@ -500,7 +614,7 @@
     state.data.deleted.unshift({...task,deletedAt:Date.now(),type:"task"});
     state.lastAction = {type:"restoreTask", task:clone(task)};
     if (state.focusedTaskId === id) state.focusedTaskId = null;
-    persist(); render(); showToast("Moved to Recently Deleted", true);
+    persist(); render({ animateView: false }); showToast("Moved to Recently Deleted", true);
   }
 
   function restoreItem(id) {
@@ -512,24 +626,22 @@
       delete item.deletedAt; delete item.type;
       state.data.tasks.push(item);
     }
-    persist(); render(); showToast("Restored");
+    persist(); render({ animateView: false }); showToast("Restored");
   }
 
-  // Recently Deleted items are only ever removed for good with an explicit,
-  // separate confirmation — recoverable moves (deleteTask above) never ask.
   function permanentlyDeleteItem(id) {
     const item = state.data.deleted.find(x=>x.id===id);
     if(!item) return;
     if(!confirm(`Permanently delete “${item.title || item.name}”? This can't be undone.`)) return;
     state.data.deleted = state.data.deleted.filter(x=>x.id!==id);
-    persist(); render(); showToast("Deleted permanently");
+    persist(); render({ animateView: false }); showToast("Deleted permanently");
   }
 
   function emptyTrash() {
     if(!state.data.deleted.length) return;
     if(!confirm("Permanently delete everything in Recently Deleted? This can't be undone.")) return;
     state.data.deleted = [];
-    persist(); render(); showToast("Recently Deleted emptied");
+    persist(); render({ animateView: false }); showToast("Recently Deleted emptied");
   }
 
   function addProject() {
@@ -551,13 +663,11 @@
     if(name?.trim()) project.name = name.trim();
     const description = prompt("Description", project.description || "");
     if(description !== null) project.description = description;
-    persist(); render(); showToast("Project updated");
+    persist(); render({ animateView: false }); showToast("Project updated");
   }
 
-  // --- Context menus (right-click on a task or project row) ---------------
-
   function taskContextMenuSections(task) {
-    const projectOptions = [{ id: "", name: "No Project" }, ...state.data.projects];
+    const projectOptions = [{ id: "", name: "Inbox" }, ...state.data.projects];
     return [
       { key: "actions", items: [
         { label: task.completed ? "Mark as Not Done" : "Mark as Done", onClick: () => toggleComplete(task.id) },
@@ -626,20 +736,20 @@
 
   function showToast(message, undo=false) {
     $("#toastMessage").textContent = message;
-    $("#toastUndo").classList.toggle("hidden", !undo);
-    $("#toast").classList.remove("hidden");
+    $("#toastUndo").classList.toggle("is-hidden", !undo);
+    $("#toast").classList.add("is-open");
     clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(()=>$("#toast").classList.add("hidden"), 2600);
+    showToast.timer = setTimeout(()=>$("#toast").classList.remove("is-open"), 2600);
   }
 
   function openSearch() {
-    $("#commandOverlay").classList.remove("hidden");
+    openOverlay($("#commandOverlay"));
     $("#globalSearch").value = state.searchQuery;
     $("#globalSearch").focus();
     renderCommandResults();
   }
 
-  function closeSearch() { $("#commandOverlay").classList.add("hidden"); }
+  function closeSearch() { closeOverlay($("#commandOverlay")); }
 
   function renderCommandResults() {
     $("#searchResults").innerHTML = renderSearchResults($("#globalSearch").value);
@@ -672,6 +782,7 @@
       state.selectedProjectId = null;
       state.view = btn.dataset.view;
       state.searchQuery = "";
+      closeSidebar();
       render();
       if(state.view==="search") setTimeout(()=>$("#pageSearch")?.focus(),0);
     });
@@ -681,6 +792,7 @@
         if (e.target.closest("[data-action]")) return;
         state.selectedProjectId = el.dataset.project;
         state.view = "all";
+        closeSidebar();
         render();
       };
       el.oncontextmenu = e => {
@@ -688,7 +800,6 @@
         const project = projectById(el.dataset.project);
         if (project) openContextMenu(e.clientX, e.clientY, projectContextMenuSections(project));
       };
-      // Drag a task onto a project row (sidebar or sub-project) to re-home it.
       el.ondragover = e => { e.preventDefault(); el.classList.add("drop-target-project"); };
       el.ondragleave = () => el.classList.remove("drop-target-project");
       el.ondrop = e => {
@@ -701,12 +812,23 @@
 
     $$("[data-action='new-task']").forEach(el => el.onclick = () => openTaskModal());
     $$("[data-action='empty-trash']").forEach(el => el.onclick = emptyTrash);
-    $("#newTaskButton").onclick = () => openTaskModal();
+    $("#newTaskButton").onclick = () => { closeSidebar(); openTaskModal(); };
     $("#addProjectButton").onclick = addProject;
     $("#searchButton").onclick = openSearch;
-    $("#settingsButton").onclick = () => { state.selectedProjectId=null; state.view="settings"; render(); };
+    $("#settingsButton").onclick = () => { state.selectedProjectId=null; state.view="settings"; closeSidebar(); render(); };
+    $("#menuButton").onclick = () => { state.sidebarOpen ? closeSidebar() : openSidebar(); };
+    $("#sidebarBackdrop").onclick = closeSidebar;
 
-    // A task row's own drop target for favoriting via drag.
+    $("#quickAdd")?.addEventListener("submit", e => {
+      e.preventDefault();
+      createQuickTask($("#quickAddInput").value);
+    });
+
+    $("#completedToggle")?.addEventListener("click", () => {
+      state.completedOpen = !state.completedOpen;
+      render({ animateView: false });
+    });
+
     const favoritesNav = $('.nav-item[data-view="favorites"]');
     if (favoritesNav) {
       favoritesNav.ondragover = e => { e.preventDefault(); favoritesNav.classList.add("drop-target-project"); };
@@ -716,7 +838,7 @@
         favoritesNav.classList.remove("drop-target-project");
         const taskId = e.dataTransfer.getData("text/plain");
         const task = taskId && state.data.tasks.find(t => t.id === taskId);
-        if (task && !task.favorite) { task.favorite = true; persist(); render(); showToast("Added to Favorites"); }
+        if (task && !task.favorite) { task.favorite = true; persist(); render({ animateView: false }); showToast("Added to Favorites"); }
       };
     }
 
@@ -726,8 +848,6 @@
     $$("[data-restore]").forEach(el => el.onclick = () => restoreItem(el.dataset.restore));
     $$("[data-permanent-delete]").forEach(el => el.onclick = () => permanentlyDeleteItem(el.dataset.permanentDelete));
 
-    // Single click opens the task; a genuine double-click renames it inline
-    // instead — the short delay is what lets the two be told apart.
     let openTaskTimer = null;
     $$("[data-open-task]").forEach(el => {
       el.onclick = () => {
@@ -827,7 +947,7 @@
     if (!before) targetIndex += 1;
     siblings.splice(Math.max(0,targetIndex),0,source);
     siblings.forEach((t,i)=>t.order=i);
-    persist(); render(); showToast("Task moved");
+    persist(); render({ animateView: false }); showToast("Task moved");
   }
 
   function moveTaskToProject(taskId, projectId) {
@@ -837,8 +957,8 @@
     if (task.projectId === normalizedId) return;
     task.projectId = normalizedId;
     task.sectionId = null;
-    persist(); render();
-    showToast(normalizedId ? `Moved to ${projectById(normalizedId)?.name || "project"}` : "Removed from project");
+    persist(); render({ animateView: false });
+    showToast(normalizedId ? `Moved to ${projectById(normalizedId)?.name || "project"}` : "Moved to Inbox");
   }
 
   function enableInlineTitleEdit(taskId, titleEl) {
@@ -854,12 +974,12 @@
     const commit = () => {
       const value = input.value.trim();
       if (value && value !== task.title) { task.title = value; persist(); }
-      render();
+      render({ animateView: false });
     };
     input.addEventListener("keydown", e => {
       e.stopPropagation();
       if (e.key === "Enter") { e.preventDefault(); commit(); }
-      else if (e.key === "Escape") { e.preventDefault(); render(); }
+      else if (e.key === "Escape") { e.preventDefault(); render({ animateView: false }); }
     });
     input.addEventListener("click", e => e.stopPropagation());
     input.addEventListener("blur", commit);
@@ -881,21 +1001,21 @@
     else document.documentElement.style.colorScheme="";
   }
 
+  function overlayOpen() {
+    return $("#modalBackdrop").classList.contains("is-open")
+      || $("#commandOverlay").classList.contains("is-open")
+      || document.querySelector(".context-menu");
+  }
+
   function bindKeyboard() {
     document.addEventListener("keydown", e => {
       const cmd = e.metaKey || e.ctrlKey;
       if(cmd && e.key.toLowerCase()==="n") { e.preventDefault(); openTaskModal(); return; }
-      if(cmd && e.key.toLowerCase()==="k") { e.preventDefault(); openSearch(); return; }
-      if(e.key==="Escape") { closeSearch(); closeModal(); closeContextMenu(); return; }
+      if(cmd && (e.key.toLowerCase()==="k" || e.key.toLowerCase()==="f")) { e.preventDefault(); openSearch(); return; }
+      if(e.key==="Escape") { closeSearch(); closeModal(); closeContextMenu(); closeSidebar(); return; }
 
-      // List keyboard navigation (↑/↓ select, Enter opens, Space toggles done,
-      // F favorites, Backspace/Delete removes) — only when the user isn't
-      // typing anywhere and no overlay is covering the list.
       const typing = ["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName);
-      const overlayOpen = !$("#modalBackdrop").classList.contains("hidden")
-        || !$("#commandOverlay").classList.contains("hidden")
-        || document.querySelector(".context-menu");
-      if (typing || overlayOpen || cmd || e.altKey) return;
+      if (typing || overlayOpen() || cmd || e.altKey) return;
 
       const rows = $$(".task-row[data-task-id]");
       if (!rows.length) return;
@@ -924,12 +1044,20 @@
         const task=state.lastAction.task;
         state.data.deleted=state.data.deleted.filter(x=>x.id!==task.id);
         state.data.tasks.push(task);
-        state.lastAction=null; persist(); render(); showToast("Undo complete");
+        state.lastAction=null; persist(); render({ animateView: false }); showToast("Undo complete");
       }
     };
     $("#modalBackdrop").addEventListener("click", e => { if(e.target.id==="modalBackdrop") closeModal(); });
   }
 
+  const apple = /Mac|iPhone|iPad|iPod/.test(navigator.platform) || (navigator.userAgentData?.platform === "macOS");
+  document.documentElement.dataset.platform = apple ? "apple" : "other";
+  if (!apple) {
+    const kbd = document.querySelector(".mod-key");
+    if (kbd) kbd.textContent = "Ctrl N";
+  }
+
+  hydrateIcons(document);
   applyAppearance();
   render();
   bindKeyboard();

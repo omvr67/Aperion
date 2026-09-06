@@ -3,68 +3,83 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5f5f7">
-  <title>Aperion — Frontend Prototype</title>
+  <meta name="theme-color" content="#f4f4f6">
+  <title>Aperion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-shell" id="app">
-    <aside class="sidebar" aria-label="Aperion navigation">
+    <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+    <aside class="sidebar" id="sidebar" aria-label="Aperion navigation">
       <div class="brand">
-        <div class="brand-mark">A</div>
+        <span class="brand-pip" aria-hidden="true"></span>
         <div>
           <div class="brand-name">Aperion</div>
-          <div class="brand-subtitle">Focus on what matters.</div>
+          <div class="brand-subtitle">Local tasks</div>
         </div>
       </div>
 
-      <button class="new-task-button glass-button" id="newTaskButton">
-        <span class="icon">＋</span>
+      <button class="new-task-button" id="newTaskButton">
+        <span class="icon-wrap" data-icon="plus"></span>
         <span>New Task</span>
-        <kbd>⌘N</kbd>
+        <kbd class="mod-key">⌘N</kbd>
       </button>
 
       <nav class="primary-nav" id="primaryNav">
         <button class="nav-item active" data-view="all">
-          <span class="nav-icon">☷</span><span>All Tasks</span><span class="nav-count" id="allCount"></span>
+          <span class="icon-wrap" data-icon="list"></span><span>All Tasks</span><span class="nav-count" id="allCount"></span>
         </button>
         <button class="nav-item" data-view="favorites">
-          <span class="nav-icon">☆</span><span>Favorites</span><span class="nav-count" id="favoriteCount"></span>
+          <span class="icon-wrap" data-icon="star"></span><span>Favorites</span><span class="nav-count" id="favoriteCount"></span>
         </button>
         <button class="nav-item" data-view="search">
-          <span class="nav-icon">⌕</span><span>Search</span>
+          <span class="icon-wrap" data-icon="search"></span><span>Search</span>
         </button>
         <button class="nav-item" data-view="deleted">
-          <span class="nav-icon">⌫</span><span>Recently Deleted</span><span class="nav-count" id="deletedCount"></span>
+          <span class="icon-wrap" data-icon="trash"></span><span>Recently Deleted</span><span class="nav-count" id="deletedCount"></span>
         </button>
         <button class="nav-item" data-view="settings">
-          <span class="nav-icon">⚙</span><span>Settings</span>
+          <span class="icon-wrap" data-icon="settings"></span><span>Settings</span>
         </button>
       </nav>
 
       <div class="sidebar-section">
         <div class="section-label">
           <span>Projects</span>
-          <button class="mini-button" id="addProjectButton" title="New project">＋</button>
+          <button class="mini-button" id="addProjectButton" title="New project" aria-label="New project">
+            <span class="icon-wrap" data-icon="plus"></span>
+          </button>
         </div>
         <div id="projectNav"></div>
       </div>
 
       <div class="sidebar-footer">
-        <div class="offline-pill"><span></span> Local only</div>
-        <div class="footer-note">Your data stays on this Mac.</div>
+        <div class="offline-pill"><span></span> On this device</div>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div>
-          <div class="eyebrow" id="viewEyebrow">APERION</div>
-          <h1 id="viewTitle">All Tasks</h1>
+        <button class="icon-button menu-button" id="menuButton" title="Menu" aria-label="Open menu">
+          <span class="icon-wrap" data-icon="menu"></span>
+        </button>
+        <div class="topbar-title">
+          <div class="title-row">
+            <span class="title-pip" id="titlePip" hidden></span>
+            <h1 id="viewTitle">All Tasks</h1>
+          </div>
+          <p class="view-kicker" id="viewKicker"></p>
         </div>
         <div class="topbar-actions">
-          <button class="icon-button" id="searchButton" title="Search">⌕</button>
-          <button class="avatar-button" id="settingsButton" title="Settings">O</button>
+          <button class="icon-button" id="searchButton" title="Search" aria-label="Search">
+            <span class="icon-wrap" data-icon="search"></span>
+          </button>
+          <button class="icon-button" id="settingsButton" title="Settings" aria-label="Settings">
+            <span class="icon-wrap" data-icon="settings"></span>
+          </button>
         </div>
       </header>
 
@@ -72,10 +87,10 @@
     </main>
   </div>
 
-  <div class="command-overlay hidden" id="commandOverlay">
+  <div class="overlay command-overlay" id="commandOverlay">
     <div class="command-panel glass-panel" role="dialog" aria-modal="true" aria-label="Search Aperion">
       <div class="search-line">
-        <span class="search-symbol">⌕</span>
+        <span class="icon-wrap" data-icon="search"></span>
         <input id="globalSearch" autocomplete="off" placeholder="Search tasks, projects, sections…" aria-label="Search tasks, projects, sections and notes">
         <kbd>ESC</kbd>
       </div>
@@ -83,13 +98,13 @@
     </div>
   </div>
 
-  <div class="modal-backdrop hidden" id="modalBackdrop">
-    <div class="task-modal glass-panel" id="taskModal" role="dialog" aria-modal="true"></div>
+  <div class="overlay modal-backdrop" id="modalBackdrop">
+    <div class="task-modal glass-panel" id="taskModal" role="dialog" aria-modal="true" aria-label="Task"></div>
   </div>
 
-  <div class="toast hidden" id="toast" role="status" aria-live="polite">
+  <div class="toast" id="toast" role="status" aria-live="polite">
     <span id="toastMessage"></span>
-    <button id="toastUndo" class="toast-undo hidden">Undo</button>
+    <button id="toastUndo" class="toast-undo is-hidden">Undo</button>
   </div>
 
   <script src="js/app.js"></script>
