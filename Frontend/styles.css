@@ -6,6 +6,9 @@
   --sidebar-bg: #ececee;
   --surface-solid: #ffffff;
   --surface-hover: rgba(0,0,0,.045);
+  --row-hover: rgba(0,0,0,.065);
+  --row-hover-strong: rgba(0,0,0,.10);
+  --row-resting-dim: rgba(0,0,0,.032);
   --border: rgba(0,0,0,.08);
   --border-strong: rgba(0,0,0,.12);
   --text: #1d1d1f;
@@ -38,6 +41,9 @@
     --sidebar-bg: #2c2c2e;
     --surface-solid: #2c2c2e;
     --surface-hover: rgba(255,255,255,.06);
+    --row-hover: rgba(255,255,255,.085);
+    --row-hover-strong: rgba(255,255,255,.13);
+    --row-resting-dim: rgba(255,255,255,.045);
     --border: rgba(255,255,255,.08);
     --border-strong: rgba(255,255,255,.14);
     --text: #f5f5f7;
@@ -55,6 +61,9 @@
   --sidebar-bg: #2c2c2e;
   --surface-solid: #2c2c2e;
   --surface-hover: rgba(255,255,255,.06);
+  --row-hover: rgba(255,255,255,.085);
+  --row-hover-strong: rgba(255,255,255,.13);
+  --row-resting-dim: rgba(255,255,255,.045);
   --border: rgba(255,255,255,.08);
   --border-strong: rgba(255,255,255,.14);
   --text: #f5f5f7;
@@ -115,8 +124,26 @@ button:disabled { opacity: .5; cursor: default; }
   padding: 22px 12px 16px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border-right: 0.5px solid var(--border);
   background: var(--sidebar-bg);
+  transition: width var(--dur-view) var(--ease-out), flex-basis var(--dur-view) var(--ease-out),
+              padding var(--dur-view) var(--ease-out), opacity var(--dur-ui) ease,
+              border-right-width var(--dur-view) var(--ease-out);
+}
+
+/* Manual sidebar collapse — works at any window size via the topbar toggle
+   button, not just inside the narrow mobile breakpoint below. */
+@media (min-width: 621px) {
+  html.sidebar-collapsed .sidebar {
+    width: 0;
+    flex-basis: 0;
+    padding-left: 0;
+    padding-right: 0;
+    opacity: 0;
+    border-right: 0;
+    pointer-events: none;
+  }
 }
 
 .brand { display: flex; gap: 10px; align-items: center; padding: 4px 10px 18px; }
@@ -152,7 +179,6 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .new-task-button .icon-svg { color: var(--bg); }
 .new-task-button kbd { margin-left: auto; color: color-mix(in srgb, var(--bg) 70%, transparent); font-size: 10px; font-weight: 500; }
-html[data-platform="other"] .mod-key { display: none; }
 
 .primary-nav { display: grid; gap: 1px; }
 .nav-item {
@@ -180,10 +206,16 @@ html[data-platform="other"] .mod-key { display: none; }
   font-size: 13px; color: var(--muted-2);
 }
 .project-row:hover { background: var(--surface-hover); color: var(--text); }
-.project-row.active { background: var(--surface-hover); color: var(--text); font-weight: 600; }
+.project-row.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 38%, transparent);
+}
 .project-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.project-row.active .project-dot { box-shadow: 0 0 0 2px rgba(255,255,255,.75); }
 .project-row .chevron { margin-left: auto; font-size: 11px; opacity: .55; transition: transform .18s var(--ease-out); }
-.project-row.active .chevron { transform: rotate(90deg); }
+.project-row.active .chevron { transform: rotate(90deg); opacity: .85; }
 .subproject-row { padding-left: 26px; font-size: 12px; animation: subprojectIn .16s var(--ease-out); }
 @keyframes subprojectIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 .drop-target-project { background: var(--accent-soft) !important; box-shadow: inset 0 0 0 1.5px var(--accent); }
@@ -197,7 +229,6 @@ html[data-platform="other"] .mod-key { display: none; }
   justify-content: space-between; gap: 12px;
   padding: 18px 40px 12px;
 }
-.menu-button { display: none; }
 .topbar-title { min-width: 0; flex: 1; }
 .title-row { display: flex; align-items: center; gap: 10px; }
 .title-pip {
@@ -255,9 +286,11 @@ h1 {
   transition: background var(--dur-micro) var(--ease-out), opacity .18s ease;
 }
 .task-list.grouped .task-row + .task-row { box-shadow: inset 0 0.5px 0 var(--border); }
-.task-row:hover { background: var(--surface-hover); }
+.task-row:hover { background: var(--row-hover); }
+.task-row.completed { background: var(--row-resting-dim); }
+.task-row.completed:hover { background: var(--row-hover-strong); }
 .task-row.dragging { opacity: .4; }
-.task-row.focused { background: var(--surface-hover); }
+.task-row.focused { background: var(--row-hover); }
 
 .task-row.drop-before::before, .task-row.drop-after::after {
   content: ""; position: absolute; left: 14px; right: 14px; height: 2px; border-radius: 2px;
@@ -289,10 +322,10 @@ h1 {
 .task-row.completed .task-title { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: var(--muted); }
 .task-meta { display: flex; gap: 8px; align-items: center; margin-top: 2px; color: var(--muted); font-size: 11px; }
 .subtask-progress { display: inline-flex; align-items: center; gap: 3px; }
-.priority { font-weight: 600; font-size: 11px; }
-.priority.high { color: #ff3b30; }
-.priority.medium { color: #ff9500; }
-.priority.low { color: #34c759; }
+.priority-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.priority-dot.high { background: #ff3b30; }
+.priority-dot.medium { background: #ff9500; }
+.priority-dot.low { background: #34c759; }
 .task-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity var(--dur-micro) ease; }
 .task-row:hover .task-actions, .task-row.focused .task-actions { opacity: 1; }
 .star {
@@ -441,6 +474,28 @@ h1 {
   width: 100%; border: 0; background: var(--bg); color: var(--text);
   border-radius: 8px; padding: 8px 10px; outline: 0; font-size: 13px;
 }
+.meta-field.color-field { grid-column: 1 / -1; }
+
+/* Project color picker — a curated, Apple-like swatch palette plus a native
+   color input (opens the system's own color wheel/sliders/crayons on macOS)
+   for anyone who wants an exact custom color. No hex-code typing required. */
+.color-picker-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 2px; }
+.color-wheel-swatch {
+  position: relative; width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+  cursor: pointer; border: 2px solid var(--border-strong); box-shadow: 0 1px 4px rgba(0,0,0,.14);
+  overflow: hidden;
+}
+.color-wheel-swatch input[type="color"] {
+  position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px);
+  border: 0; padding: 0; cursor: pointer; opacity: 0;
+}
+.color-swatches { display: flex; flex-wrap: wrap; gap: 7px; }
+.color-swatch {
+  width: 20px; height: 20px; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 2px solid transparent; transition: transform .12s ease, border-color .12s ease;
+}
+.color-swatch:hover { transform: scale(1.14); }
+.color-swatch.selected { border-color: var(--text); transform: scale(1.14); }
 
 .subtasks { border-top: 0.5px solid var(--border); padding-top: 12px; margin-top: 4px; }
 .subtask-line { display: flex; align-items: center; gap: 8px; padding: 6px 0; animation: subprojectIn .16s var(--ease-out); }
@@ -526,7 +581,6 @@ h1 {
     box-shadow: none;
   }
   .app-shell.sidebar-open .sidebar { transform: translateX(0); box-shadow: var(--shadow); }
-  .menu-button { display: grid; }
   .topbar { height: 76px; flex-basis: 76px; align-items: center; padding-top: 8px; padding-bottom: 8px; }
   h1 { font-size: 28px; }
   .meta-row { grid-template-columns: 1fr; }

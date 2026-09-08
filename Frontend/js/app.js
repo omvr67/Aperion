@@ -2,6 +2,13 @@
   "use strict";
 
   const STORAGE_KEY = "aperion.frontend.v1";
+  const SIDEBAR_KEY = "aperion.frontend.sidebarCollapsed";
+
+  // Curated, Apple-like project color palette (used by the color picker).
+  // A user picks one of these with a click, or opens the native color input
+  // for a fully custom color — no hex codes to type.
+  const PROJECT_COLORS = ["#0071e3","#5856d6","#ff2d55","#ff3b30","#ff9500","#ffcc00","#34c759","#30b0c7","#5e5ce6","#8e8e93"];
+
   const DEFAULT_DATA = {
     appearance: "system",
     notifications: "off",
@@ -9,33 +16,23 @@
     projects: [
       {
         id: "p-university", name: "University", description: "Everything for university.",
-        color: "#0071e3", icon: "U", favorite: true, parentId: null, order: 0,
-        sections: [
-          { id: "s-university-main", name: "General", order: 0 },
-          { id: "s-university-work", name: "Coursework", order: 1 }
-        ]
+        color: "#0071e3", icon: "U", favorite: true, parentId: null, order: 0
       },
       {
         id: "p-aperion", name: "Build Aperion", description: "Design, build and refine Aperion.",
-        color: "#5856d6", icon: "A", favorite: true, parentId: null, order: 1,
-        sections: [
-          { id: "s-aperion-ideas", name: "Ideas", order: 0 },
-          { id: "s-aperion-dev", name: "Development", order: 1 },
-          { id: "s-aperion-test", name: "Testing", order: 2 }
-        ]
+        color: "#5856d6", icon: "A", favorite: true, parentId: null, order: 1
       },
       {
         id: "p-personal", name: "Personal", description: "Personal goals and tasks.",
-        color: "#34c759", icon: "P", favorite: false, parentId: null, order: 2,
-        sections: [{ id: "s-personal-main", name: "General", order: 0 }]
+        color: "#34c759", icon: "P", favorite: false, parentId: null, order: 2
       }
     ],
     tasks: [
-      { id:"t1", title:"Finish SQL assignment", notes:"Complete the joins and window functions.", completed:false, priority:"high", favorite:true, projectId:"p-university", sectionId:"s-university-work", parentTaskId:null, order:0, createdAt:Date.now()-500000 },
-      { id:"t2", title:"Review data structures", notes:"Focus on trees and graph traversal.", completed:false, priority:"medium", favorite:false, projectId:"p-university", sectionId:"s-university-work", parentTaskId:null, order:1, createdAt:Date.now()-400000 },
-      { id:"t3", title:"Refine Aperion sidebar", notes:"Keep it compact and native-looking.", completed:false, priority:"medium", favorite:true, projectId:"p-aperion", sectionId:"s-aperion-dev", parentTaskId:null, order:0, createdAt:Date.now()-300000 },
-      { id:"t4", title:"Validate task deletion flow", notes:"Test Recently Deleted and undo.", completed:true, priority:null, favorite:false, projectId:"p-aperion", sectionId:"s-aperion-test", parentTaskId:null, order:0, createdAt:Date.now()-200000 },
-      { id:"t5", title:"Read 20 pages", notes:"", completed:false, priority:"low", favorite:false, projectId:null, sectionId:null, parentTaskId:null, order:0, createdAt:Date.now()-100000 }
+      { id:"t1", title:"Finish SQL assignment", notes:"Complete the joins and window functions.", completed:false, priority:"high", favorite:true, projectId:"p-university", parentTaskId:null, order:0, createdAt:Date.now()-500000, links:[] },
+      { id:"t2", title:"Review data structures", notes:"Focus on trees and graph traversal.", completed:false, priority:"medium", favorite:false, projectId:"p-university", parentTaskId:null, order:1, createdAt:Date.now()-400000, links:[] },
+      { id:"t3", title:"Refine Aperion sidebar", notes:"Keep it compact and native-looking.", completed:false, priority:"medium", favorite:true, projectId:"p-aperion", parentTaskId:null, order:0, createdAt:Date.now()-300000, links:[] },
+      { id:"t4", title:"Validate task deletion flow", notes:"Test Recently Deleted and undo.", completed:true, priority:null, favorite:false, projectId:"p-aperion", parentTaskId:null, order:0, createdAt:Date.now()-200000, links:[] },
+      { id:"t5", title:"Read 20 pages", notes:"", completed:false, priority:"low", favorite:false, projectId:null, parentTaskId:null, order:0, createdAt:Date.now()-100000, links:[] }
     ],
     deleted: []
   };
@@ -71,7 +68,8 @@
     focusedTaskId: null,
     lastViewKey: null,
     completedOpen: false,
-    sidebarOpen: false
+    sidebarOpen: false,
+    sidebarCollapsed: loadSidebarCollapsed()
   };
 
   const $ = (s, root = document) => root.querySelector(s);
@@ -94,6 +92,10 @@
     } catch { return clone(DEFAULT_DATA); }
   }
 
+  function loadSidebarCollapsed() {
+    try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; }
+  }
+
   function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
   }
@@ -103,7 +105,6 @@
   }
 
   function projectById(id) { return state.data.projects.find(p => p.id === id); }
-  function sectionById(project, id) { return project?.sections?.find(s => s.id === id); }
   function activeTasks() { return state.data.tasks.filter(t => !t.deleted); }
   function topLevelTasks() { return activeTasks().filter(t => !t.parentTaskId); }
 
@@ -135,10 +136,12 @@
     return escaped.slice(0, idx) + `<mark>${escaped.slice(idx, idx + escapedQuery.length)}</mark>` + escaped.slice(idx + escapedQuery.length);
   }
 
+  // Priority is communicated purely by color — a small, restrained dot —
+  // rather than a P1/P2/P3 text badge.
   function priorityHTML(priority) {
     if (!priority) return "";
-    const label = priority === "high" ? "P1" : priority === "medium" ? "P2" : "P3";
-    return `<span class="priority ${priority}">${label}</span>`;
+    const label = priority === "high" ? "High priority" : priority === "medium" ? "Medium priority" : "Low priority";
+    return `<span class="priority-dot ${priority}" title="${label}" aria-label="${label}"></span>`;
   }
 
   function hydrateIcons(root = document) {
@@ -157,6 +160,25 @@
     state.sidebarOpen = true;
     $("#app").classList.add("sidebar-open");
     $("#sidebarBackdrop").hidden = false;
+  }
+
+  // The sidebar toggle button now works at any window size, not just inside
+  // the narrow mobile breakpoint. Below that breakpoint it keeps using the
+  // existing slide-in drawer (openSidebar/closeSidebar above); at any wider
+  // size it now toggles a persistent, collapsed-to-zero-width state instead,
+  // so the same button always does something visible.
+  function applySidebarCollapsed() {
+    document.documentElement.classList.toggle("sidebar-collapsed", !!state.sidebarCollapsed);
+  }
+
+  function toggleSidebar() {
+    if (window.matchMedia("(max-width: 620px)").matches) {
+      state.sidebarOpen ? closeSidebar() : openSidebar();
+      return;
+    }
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+    try { localStorage.setItem(SIDEBAR_KEY, state.sidebarCollapsed ? "1" : "0"); } catch {}
+    applySidebarCollapsed();
   }
 
   function render(options = {}) {
@@ -251,7 +273,6 @@
 
   function taskRow(task) {
     const project = projectById(task.projectId);
-    const section = sectionById(project, task.sectionId);
     const subtasks = state.data.tasks.filter(t => t.parentTaskId === task.id);
     const subtaskBadge = subtasks.length
       ? `<span class="subtask-progress" title="${subtasks.filter(s=>s.completed).length} of ${subtasks.length} subtasks done">${subtasks.filter(s=>s.completed).length}/${subtasks.length}</span>`
@@ -266,7 +287,6 @@
             ${subtaskBadge}
             ${task.notes ? `<span>${escapeHtml(task.notes.slice(0,70))}</span>` : ""}
             ${project && !state.selectedProjectId ? `<span>${escapeHtml(project.name)}</span>` : ""}
-            ${section ? `<span>${escapeHtml(section.name)}</span>` : ""}
           </div>
         </div>
         <div class="task-actions">
@@ -303,9 +323,8 @@
     const groups = new Map();
     tasks.sort((a,b) => a.order-b.order).forEach(t => {
       const project = projectById(t.projectId);
-      const section = sectionById(project, t.sectionId);
-      const key = section ? section.id : t.projectId || "unassigned";
-      const title = section ? section.name : (project?.name || "Inbox");
+      const key = t.projectId || "unassigned";
+      const title = project?.name || "Inbox";
       if (!groups.has(key)) groups.set(key, {title, projectId:t.projectId, tasks:[]});
       groups.get(key).tasks.push(t);
     });
@@ -342,10 +361,9 @@
   function renderProjectView(project) {
     if (!project) return `<div class="content-inner">${emptyState("Project not found", "The selected project no longer exists.")}</div>`;
     const tasks = projectTasks(project.id);
-    const sections = [...project.sections].sort((a,b)=>a.order-b.order);
     const children = state.data.projects.filter(p=>p.parentId===project.id);
     const completed = tasks.filter(t => t.completed);
-    const openTasks = tasks.filter(t => !t.completed);
+    const openTasks = tasks.filter(t => !t.completed).sort((a,b)=>a.order-b.order);
     return `<div class="content-inner">
       <div class="project-header">
         ${project.description ? `<p>${escapeHtml(project.description)}</p>` : ""}
@@ -355,14 +373,7 @@
       </div>
       ${quickAddHTML()}
       ${children.length ? `<div class="section-block"><div class="section-heading"><span>Sub-projects</span></div>${children.map(c=>`<div class="subproject-card" data-project="${c.id}"><strong>${escapeHtml(c.name)}</strong><div class="task-meta">${projectTasks(c.id).filter(t=>!t.completed).length} open</div></div>`).join("")}</div>` : ""}
-      ${sections.map(section => {
-        const sectionTasks = openTasks.filter(t=>t.sectionId===section.id).sort((a,b)=>a.order-b.order);
-        return `<div class="section-block">
-          <div class="section-heading"><span>${escapeHtml(section.name)}</span><span class="section-count">${sectionTasks.length}</span></div>
-          ${sectionTasks.length ? groupedList(sectionTasks) : `<div class="subproject-card" data-action="new-task">Add a task</div>`}
-        </div>`;
-      }).join("")}
-      ${openTasks.filter(t=>!t.sectionId).length ? `<div class="section-block"><div class="section-heading"><span>Other</span></div>${groupedList(openTasks.filter(t=>!t.sectionId))}</div>`:""}
+      ${openTasks.length ? groupedList(openTasks) : `<div class="subproject-card" data-action="new-task">Add a task</div>`}
       ${completedBlock(completed)}
     </div>`;
   }
@@ -384,10 +395,10 @@
         <div class="recent-search-row">
           <button class="search-result" data-recent-search="${escapeHtml(s)}"><span class="result-kind">Recent</span><div class="result-title">${escapeHtml(s)}</div></button>
           <button class="remove-recent" data-remove-recent="${escapeHtml(s)}" title="Remove from recent searches" aria-label="Remove ‘${escapeHtml(s)}’ from recent searches">${icon("close")}</button>
-        </div>`).join("")}` : emptyState("Search Aperion", "Find tasks, projects, sections and notes.");
+        </div>`).join("")}` : emptyState("Search Aperion", "Find tasks, projects and notes.");
     }
     const q = query.trim().toLowerCase();
-    const taskResults = [], projectResults = [], sectionResults = [];
+    const taskResults = [], projectResults = [];
     activeTasks().forEach(t => {
       if ([t.title,t.notes].some(v=>(v||"").toLowerCase().includes(q))) {
         taskResults.push({
@@ -400,12 +411,10 @@
     });
     state.data.projects.forEach(p => {
       if (p.name.toLowerCase().includes(q) || (p.description||"").toLowerCase().includes(q)) projectResults.push({kind:"Project",title:p.name,detail:p.description||"",project:p});
-      p.sections.forEach(s => { if (s.name.toLowerCase().includes(q)) sectionResults.push({kind:"Section",title:s.name,detail:p.name,project:p}); });
     });
     const groups = [
       { label: "Tasks", results: taskResults },
-      { label: "Projects", results: projectResults },
-      { label: "Sections", results: sectionResults }
+      { label: "Projects", results: projectResults }
     ].filter(g => g.results.length);
     if (!groups.length) return emptyState("No matches", "Try another word or a task title.");
     return groups.map(g => `
@@ -473,10 +482,9 @@
   function openTaskModal(taskId = null) {
     state.editingTaskId = taskId;
     const task = taskId ? state.data.tasks.find(t=>t.id===taskId) : {
-      id:null,title:"",notes:"",completed:false,priority:null,favorite:false,projectId:state.selectedProjectId,sectionId:null,parentTaskId:null,order:999,createdAt:Date.now(),links:[]
+      id:null,title:"",notes:"",completed:false,priority:null,favorite:false,projectId:state.selectedProjectId,parentTaskId:null,order:999,createdAt:Date.now(),links:[]
     };
     if (!task) return;
-    const project = projectById(task.projectId);
     const subtasks = state.data.tasks.filter(t=>t.parentTaskId===task.id);
 
     $("#taskModal").innerHTML = `
@@ -491,12 +499,6 @@
         </label>
         <label class="meta-field"><span>Project</span>
           <select id="modalProject"><option value="">Inbox</option>${state.data.projects.map(p=>`<option value="${p.id}" ${task.projectId===p.id?"selected":""}>${escapeHtml(p.name)}</option>`).join("")}</select>
-        </label>
-        <label class="meta-field"><span>Section</span>
-          <select id="modalSection"><option value="">None</option>${project?.sections?.map(s=>`<option value="${s.id}" ${task.sectionId===s.id?"selected":""}>${escapeHtml(s.name)}</option>`).join("") || ""}</select>
-        </label>
-        <label class="meta-field"><span>Link</span>
-          <input type="url" id="modalLink" placeholder="https://" value="${escapeHtml((task.links||[])[0]||"")}">
         </label>
       </div>
       ${taskId ? `<div class="subtasks"><div class="section-heading" style="padding:0 0 4px"><span>Subtasks</span></div>${subtasks.map(s=>`<div class="subtask-line"><button class="check ${s.completed?"done":""}" data-complete="${s.id}"></button><input type="text" value="${escapeHtml(s.title)}" data-subtask-input="${s.id}"></div>`).join("")}<div class="subtask-line"><button class="check"></button><input type="text" id="newSubtask" placeholder="New subtask"></div></div>` : ""}
@@ -516,10 +518,6 @@
       task.favorite = !task.favorite;
       $("#favoriteModal").innerHTML = icon("star", task.favorite);
       $("#favoriteModal").classList.toggle("pop", true);
-    };
-    $("#modalProject").onchange = () => {
-      const p = projectById($("#modalProject").value);
-      $("#modalSection").innerHTML = `<option value="">None</option>${p?.sections?.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("") || ""}`;
     };
     $$(".check", $("#taskModal")).forEach(btn => {
       if (btn.dataset.complete) btn.onclick = () => toggleComplete(btn.dataset.complete);
@@ -541,14 +539,15 @@
     }
 
     const projectId = $("#modalProject").value || null;
-    const sectionId = projectId ? ($("#modalSection").value || null) : null;
+    // Links intentionally aren't exposed in this form anymore — omitting the
+    // key here means an existing task's links (if any) are left untouched,
+    // and new tasks keep the empty links[] from their template. This keeps
+    // the data model forward-compatible if the field comes back later.
     const payload = {
       title,
       notes: $("#modalNotes").value.trim(),
       priority: $("#modalPriority").value || null,
       projectId,
-      sectionId,
-      links: $("#modalLink").value.trim() ? [$("#modalLink").value.trim()] : [],
     };
 
     if (existing.id) {
@@ -559,7 +558,7 @@
         if(sub) sub.title = input.value.trim() || sub.title;
       });
       const newSub = $("#newSubtask")?.value.trim();
-      if (newSub) state.data.tasks.push({id:uid("task"),title:newSub,notes:"",completed:false,priority:null,favorite:false,projectId,sectionId,parentTaskId:existing.id,order:999,createdAt:Date.now()});
+      if (newSub) state.data.tasks.push({id:uid("task"),title:newSub,notes:"",completed:false,priority:null,favorite:false,projectId,parentTaskId:existing.id,order:999,createdAt:Date.now()});
     } else {
       state.data.tasks.push({...existing,...payload,id:uid("task"),createdAt:Date.now()});
     }
@@ -575,13 +574,11 @@
     const trimmed = title.trim();
     if (!trimmed) return;
     const projectId = state.selectedProjectId;
-    const project = projectById(projectId);
-    const sectionId = project?.sections?.[0]?.id || null;
-    const siblings = topLevelTasks().filter(t => t.projectId === (projectId || null) && t.sectionId === sectionId);
+    const siblings = topLevelTasks().filter(t => t.projectId === (projectId || null));
     const order = siblings.length ? Math.min(...siblings.map(t => t.order)) - 1 : 0;
     state.data.tasks.push({
       id: uid("task"), title: trimmed, notes: "", completed: false, priority: null, favorite: false,
-      projectId: projectId || null, sectionId, parentTaskId: null, order, createdAt: Date.now()
+      projectId: projectId || null, parentTaskId: null, order, createdAt: Date.now(), links: []
     });
     persist();
     render({ animateView: false });
@@ -625,6 +622,9 @@
     if(item.type==="task") {
       delete item.deletedAt; delete item.type;
       state.data.tasks.push(item);
+    } else if (item.type==="project") {
+      delete item.deletedAt; delete item.type;
+      state.data.projects.push(item);
     }
     persist(); render({ animateView: false }); showToast("Restored");
   }
@@ -644,26 +644,108 @@
     persist(); render({ animateView: false }); showToast("Recently Deleted emptied");
   }
 
-  function addProject() {
-    const name = prompt("Project name");
-    if (!name?.trim()) return;
-    const color = prompt("Color (hex)", "#0071e3") || "#0071e3";
-    const project = {
-      id:uid("project"),name:name.trim(),description:"",color,icon:name.trim()[0].toUpperCase(),
-      favorite:false,parentId:null,order:state.data.projects.length,sections:[{id:uid("section"),name:"General",order:0}]
-    };
-    state.data.projects.push(project);
-    persist(); render(); showToast("Project created");
+  // Deleting a project detaches (not deletes) its tasks — they become
+  // standalone, matching the same rule the Python core prototype enforces.
+  // A project that still has sub-projects can't be deleted until those are
+  // moved or removed first.
+  function deleteProject(id) {
+    const project = projectById(id);
+    if (!project) return;
+    const children = state.data.projects.filter(p => p.parentId === id);
+    if (children.length) {
+      alert(`“${project.name}” still has sub-projects. Move or delete those first.`);
+      return;
+    }
+    if (!confirm(`Delete “${project.name}”? Its tasks will become standalone, and the project moves to Recently Deleted for 30 days.`)) return;
+    state.data.tasks.forEach(t => { if (t.projectId === id) t.projectId = null; });
+    state.data.projects = state.data.projects.filter(p => p.id !== id);
+    state.data.deleted.unshift({ ...project, deletedAt: Date.now(), type: "project" });
+    if (state.selectedProjectId === id) { state.selectedProjectId = null; state.view = "all"; }
+    persist(); render(); showToast("Project moved to Recently Deleted");
   }
 
-  function editProject(id) {
-    const project = projectById(id);
-    if(!project) return;
-    const name = prompt("Project name", project.name);
-    if(name?.trim()) project.name = name.trim();
-    const description = prompt("Description", project.description || "");
-    if(description !== null) project.description = description;
-    persist(); render({ animateView: false }); showToast("Project updated");
+  function addProject() { openProjectModal(null); }
+  function editProject(id) { openProjectModal(id); }
+
+  // Project create/edit modal — replaces the old prompt()-based flow. prompt()
+  // is a bare, unstyled OS dialog (always white in both light and dark mode,
+  // and only ever takes plain text), so a hex color had to be typed by hand
+  // and the description couldn't be styled at all. This reuses the same
+  // themed modal surface as the task editor, and gives color a real picker:
+  // a curated swatch palette plus a native color input that opens the
+  // system's own wheel/sliders/crayons picker on macOS — no hex typing.
+  function openProjectModal(projectId = null) {
+    const existing = projectId ? projectById(projectId) : null;
+    const isNew = !existing;
+    const color = existing?.color || PROJECT_COLORS[0];
+
+    $("#taskModal").innerHTML = `
+      <div class="modal-header">
+        <input class="modal-title-input" id="modalProjectName" value="${escapeHtml(existing?.name || "")}" placeholder="Project name" autofocus>
+        <button class="close-button" id="closeModal" aria-label="Close">${icon("close")}</button>
+      </div>
+      <textarea class="notes-field" id="modalProjectDescription" rows="3" placeholder="Description">${escapeHtml(existing?.description || "")}</textarea>
+      <div class="meta-row">
+        <label class="meta-field color-field">
+          <span>Color</span>
+          <div class="color-picker-row">
+            <label class="color-wheel-swatch" id="colorWheelSwatch" style="background:${escapeHtml(color)}" title="Custom color">
+              <input type="color" id="modalProjectColorInput" value="${escapeHtml(color)}">
+            </label>
+            <div class="color-swatches" id="colorSwatches">
+              ${PROJECT_COLORS.map(c => `<button type="button" class="color-swatch${c.toLowerCase()===color.toLowerCase()?" selected":""}" data-color="${c}" style="background:${c}" aria-label="${c}" title="${c}"></button>`).join("")}
+            </div>
+          </div>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="danger-button" id="deleteProjectModal">${isNew ? "" : "Delete"}</button>
+        <div style="margin-left:auto;display:flex;gap:6px"><button class="save-button" id="saveProjectModal">Done</button></div>
+      </div>`;
+    openOverlay($("#modalBackdrop"));
+
+    $("#closeModal").onclick = closeModal;
+    $("#saveProjectModal").onclick = () => saveProjectFromModal(existing);
+    if (!isNew) $("#deleteProjectModal").onclick = () => { closeModal(); deleteProject(existing.id); };
+    $("#modalProjectName").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); saveProjectFromModal(existing); } };
+
+    const colorInput = $("#modalProjectColorInput");
+    const wheelSwatch = $("#colorWheelSwatch");
+    const swatchWrap = $("#colorSwatches");
+    colorInput.addEventListener("input", () => {
+      wheelSwatch.style.background = colorInput.value;
+      $$(".color-swatch", swatchWrap).forEach(s => s.classList.toggle("selected", s.dataset.color.toLowerCase() === colorInput.value.toLowerCase()));
+    });
+    $$(".color-swatch", swatchWrap).forEach(btn => {
+      btn.onclick = () => {
+        colorInput.value = btn.dataset.color;
+        wheelSwatch.style.background = btn.dataset.color;
+        $$(".color-swatch", swatchWrap).forEach(s => s.classList.remove("selected"));
+        btn.classList.add("selected");
+      };
+    });
+  }
+
+  function saveProjectFromModal(existing) {
+    const name = $("#modalProjectName").value.trim();
+    if (!name) { $("#modalProjectName").focus(); return; }
+    const description = $("#modalProjectDescription").value.trim();
+    const color = $("#modalProjectColorInput").value;
+
+    if (existing) {
+      existing.name = name;
+      existing.description = description;
+      existing.color = color;
+      persist(); closeModal(); render({ animateView: false }); showToast("Project updated");
+    } else {
+      const project = {
+        id: uid("project"), name, description, color,
+        icon: name[0].toUpperCase(), favorite: false, parentId: null,
+        order: state.data.projects.length
+      };
+      state.data.projects.push(project);
+      persist(); closeModal(); render(); showToast("Project created");
+    }
   }
 
   function taskContextMenuSections(task) {
@@ -690,6 +772,9 @@
       { key: "actions", items: [
         { label: "New Task", onClick: () => { state.selectedProjectId = project.id; openTaskModal(); } },
         { label: "Edit Project…", onClick: () => editProject(project.id) }
+      ]},
+      { key: "danger", items: [
+        { label: "Delete Project", danger: true, onClick: () => deleteProject(project.id) }
       ]}
     ];
   }
@@ -816,7 +901,7 @@
     $("#addProjectButton").onclick = addProject;
     $("#searchButton").onclick = openSearch;
     $("#settingsButton").onclick = () => { state.selectedProjectId=null; state.view="settings"; closeSidebar(); render(); };
-    $("#menuButton").onclick = () => { state.sidebarOpen ? closeSidebar() : openSidebar(); };
+    $("#menuButton").onclick = toggleSidebar;
     $("#sidebarBackdrop").onclick = closeSidebar;
 
     $("#quickAdd")?.addEventListener("submit", e => {
@@ -939,10 +1024,10 @@
     if(sourceId===targetId) return;
     const source=state.data.tasks.find(t=>t.id===sourceId), target=state.data.tasks.find(t=>t.id===targetId);
     if(!source||!target) return;
-    if(source.projectId!==target.projectId || source.sectionId!==target.sectionId) {
-      source.projectId=target.projectId; source.sectionId=target.sectionId;
+    if(source.projectId!==target.projectId) {
+      source.projectId=target.projectId;
     }
-    const siblings=state.data.tasks.filter(t=>t.projectId===target.projectId && t.sectionId===target.sectionId && t.parentTaskId===target.parentTaskId && t.id!==source.id).sort((a,b)=>a.order-b.order);
+    const siblings=state.data.tasks.filter(t=>t.projectId===target.projectId && t.parentTaskId===target.parentTaskId && t.id!==source.id).sort((a,b)=>a.order-b.order);
     let targetIndex=siblings.findIndex(t=>t.id===target.id);
     if (!before) targetIndex += 1;
     siblings.splice(Math.max(0,targetIndex),0,source);
@@ -956,7 +1041,6 @@
     const normalizedId = projectId || null;
     if (task.projectId === normalizedId) return;
     task.projectId = normalizedId;
-    task.sectionId = null;
     persist(); render({ animateView: false });
     showToast(normalizedId ? `Moved to ${projectById(normalizedId)?.name || "project"}` : "Moved to Inbox");
   }
@@ -1010,12 +1094,19 @@
   function bindKeyboard() {
     document.addEventListener("keydown", e => {
       const cmd = e.metaKey || e.ctrlKey;
-      if(cmd && e.key.toLowerCase()==="n") { e.preventDefault(); openTaskModal(); return; }
       if(cmd && (e.key.toLowerCase()==="k" || e.key.toLowerCase()==="f")) { e.preventDefault(); openSearch(); return; }
+      if(cmd && e.key==="\\") { e.preventDefault(); toggleSidebar(); return; }
       if(e.key==="Escape") { closeSearch(); closeModal(); closeContextMenu(); closeSidebar(); return; }
 
+      // New Task deliberately uses a bare "N" rather than ⌘N — Safari (and
+      // other browsers) reserve ⌘N for "New Window" at the OS/browser level,
+      // and preventDefault() cannot override that reserved shortcut. A plain
+      // key has no such conflict. Only fires when the user isn't typing
+      // anywhere and no overlay is covering the page.
       const typing = ["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName);
       if (typing || overlayOpen() || cmd || e.altKey) return;
+
+      if (e.key.toLowerCase() === "n") { e.preventDefault(); openTaskModal(); return; }
 
       const rows = $$(".task-row[data-task-id]");
       if (!rows.length) return;
@@ -1050,15 +1141,9 @@
     $("#modalBackdrop").addEventListener("click", e => { if(e.target.id==="modalBackdrop") closeModal(); });
   }
 
-  const apple = /Mac|iPhone|iPad|iPod/.test(navigator.platform) || (navigator.userAgentData?.platform === "macOS");
-  document.documentElement.dataset.platform = apple ? "apple" : "other";
-  if (!apple) {
-    const kbd = document.querySelector(".mod-key");
-    if (kbd) kbd.textContent = "Ctrl N";
-  }
-
   hydrateIcons(document);
   applyAppearance();
+  applySidebarCollapsed();
   render();
   bindKeyboard();
 })();
